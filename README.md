@@ -1,8 +1,13 @@
+## Repo Move
+
+This project is now integrated into the ollie frontend repo and hosted at:
+https://www.ollieml.com/chemistry
+
 # Molecular Geometry Calculator
 
-Started as a C++ console app that parsed chemical formulas, looked up VSEPR geometry, and printed bond angles to stdout. It worked fine but wasn't very useful or shareable.
+Started as a C++ console app that parsed chemical formulas, calculated VSEPR geometry, and printed bond angles to stdout. It worked fine but wasn't very useful.
 
-Rebuilt as a web viewer so it could be embedded in the Ollie.ml website. The core logic is the same, but now it renders the actual 3D molecular structure using Three.js (WebGPU) and pulls real data from the PubChem API. Ionic compounds like Na₂SO₄ that don't have PubChem entries fall back to a synthetic structure built from the formula unit.
+Rebuilt as a web viewer that reenders the actual 3D molecular structure using Three.js (WebGPU) and pulls real data from the PubChem API. Ionic compounds like Na₂SO₄ that don't have PubChem entries fall back to a synthetic structure built from the formula unit.
 
 ## What it does
 
@@ -25,11 +30,3 @@ Rebuilt as a web viewer so it could be embedded in the Ollie.ml website. The cor
 
 Three.js r169 (WebGPU renderer, TSL materials) · PubChem REST API · single HTML file, no build step
 
-## Legacy
-
-The original C++ project is in `legacy/`. It uses a hardcoded element database and VSEPR lookup table. No rendering — just terminal output.
-
-## New Repo
-
-This project is now integrated into the ollie frontend repo:
-https://github.com/Rubixion/ollie-frontend
