@@ -268,6 +268,8 @@
     .help-divider { border-top: 1px solid var(--border); margin: 10px 0; }
     .help-hint { color: rgba(255,255,255,0.35); font-size: 9.5px; line-height: 1.6; }
     .help-hint em { color: rgba(255,255,255,0.6); font-style: normal; }
+    .src-link { color: var(--cyan); text-decoration: none; }
+    .src-link:hover, .src-link:focus-visible { text-decoration: underline; }
     .s-title { color: rgba(255,255,255,0.22); font-size: 8px; letter-spacing: 3px; text-transform: uppercase; margin-bottom: 14px; }
     .s-section { margin-bottom: 14px; padding-bottom: 14px; border-bottom: 1px solid var(--border); }
     .s-section:last-child { margin-bottom: 0; padding-bottom: 0; border-bottom: none; }
@@ -430,6 +432,14 @@
     <div class="help-divider"></div>
     <div class="s-lbl" style="margin-bottom:6px">Load a molecule</div>
     <div class="help-hint">Type a name <em>water</em>, <em>caffeine</em>, <em>aspirin</em>, or a formula like <em>H&#x2082;O</em> or <em>Na&#x2082;SO&#x2084;</em>, then press Enter.</div>
+    <div class="help-divider"></div>
+    <div class="s-lbl" style="margin-bottom:6px">Data sources</div>
+    <div class="help-hint">
+      Structures come from <a class="src-link" href="https://pubchem.ncbi.nlm.nih.gov/" target="_blank" rel="noopener">PubChem</a>. Each molecule links to its record.<br>
+      <em>3D conformer</em>: computed by PubChem (MMFF94s force field), not measured. <a class="src-link" href="https://pubchem.ncbi.nlm.nih.gov/docs/pubchem3d" target="_blank" rel="noopener">How ↗</a><br>
+      <em>Idealized VSEPR</em>: textbook positions, used when PubChem has no usable 3D shape (XeF&#x2082;, SF&#x2086;).<br>
+      <em>Bond type</em>: ionic needs a metal and &Delta;EN &ge; 1.7 (Pauling), polar covalent needs &Delta;EN &ge; 0.4.
+    </div>
   </div>
 
 </div>
@@ -761,7 +771,7 @@ function buildIonicMol(parsedAtoms, ionicName) {
 
   const formula = parsedAtoms.map(({el,n}) => el+(n>1?n:'')).join('')
   const mw      = parsedAtoms.reduce((s,{el,n}) => s+(ed(el).mass||0)*n, 0)
-  return {formula:ionicName??formula, mw, atoms, bonds, ionic:true}
+  return {formula:ionicName??formula, mw, atoms, bonds, ionic:true, coords:'Built from formula'}
 }
 
 // PubChem fetch
@@ -797,12 +807,16 @@ function parsePubChemData(data, fallbackName) {
   }))
   const bonds = []
   if (cmp.bonds) {
-    for (let i = 0; i < cmp.bonds.aid1.length; i++)
-      bonds.push({a:cmp.bonds.aid1[i], b:cmp.bonds.aid2[i], order:cmp.bonds.order?.[i]??1})
+    // PubChem codes above 3 are bond types, not orders (5 dative, 6 complex, 7 ionic, 255 unknown): count as single
+    for (let i = 0; i < cmp.bonds.aid1.length; i++) {
+      const o = cmp.bonds.order?.[i] ?? 1
+      bonds.push({a:cmp.bonds.aid1[i], b:cmp.bonds.aid2[i], order: o <= 3 ? o : 1})
+    }
   }
   const formula = cmp.props?.find(p => p.urn?.label === 'Molecular Formula')?.value?.sval ?? fallbackName
   const mw      = atoms.reduce((s, a) => s + (ed(a.el).mass||0), 0)
-  return {formula, mw, atoms, bonds}
+  const cid = cmp.id?.id?.cid ?? null
+  return {formula, mw, atoms, bonds, cid, coords: conf.z ? '3D conformer' : '2D layout'}
 }
 
 // fetch that tags network failures (offline, ad blocker, blocked network) so the error can say so
@@ -939,7 +953,7 @@ function idealizeVSEPR(mol) {
     const L = Math.hypot(n.x-cx, n.y-cy, n.z-cz) || 1.5
     return [n.id, {x:dirs[i][0]*L, y:dirs[i][1]*L, z:dirs[i][2]*L}]
   }))
-  return {...mol, atoms: mol.atoms.map(a => a === c.central ? {...a, x:0, y:0, z:0} : {...a, ...pos.get(a.id)})}
+  return {...mol, coords:'Idealized VSEPR', atoms: mol.atoms.map(a => a === c.central ? {...a, x:0, y:0, z:0} : {...a, ...pos.get(a.id)})}
 }
 
 const titleCase = s => s.replace(/(^|\s)\w/g, ch => ch.toUpperCase())
@@ -1287,7 +1301,14 @@ function renderMol(mol) {
     maxR = Math.max(maxR, Math.sqrt(dx*dx+dy*dy+dz*dz))
   })
   const fovRad = camera.fov * Math.PI / 180
-  _fitDist = Math.max(3.5, Math.min(22, (maxR + 0.9) / Math.sin(fovRad/2) * 1.1))
+  // Frame the bulk of the molecule (85% of atoms), not the single farthest atom, so long chains don't start tiny
+  const dists = mol.atoms.map(a => Math.hypot(a.x-cx, a.y-cy, a.z-cz) * SCALE).sort((p, q) => p - q)
+  const rFit  = dists[Math.floor((dists.length - 1) * 0.85)]
+  _fitDist = Math.max(3.5, (rFit + 0.9) / Math.tan(fovRad/2))
+  // Zoom range and draw distance scale with the whole molecule, so insulin-sized structures still fit when zoomed out
+  controls.maxDistance = Math.max(30, (maxR + 0.9) / Math.sin(fovRad/2) * 2)
+  camera.far = controls.maxDistance + maxR * 2 + 10
+  camera.updateProjectionMatrix()
   _zoomTarget = _fitDist
 
   const posMap = {}
@@ -1344,15 +1365,21 @@ function renderMol(mol) {
   document.getElementById('bd-chem-row').innerHTML =
     `<span class="bd-badge ${polarity.cls}" title="${polarity.reason}">${polarity.label}</span>` +
     `<div class="bd-chem-item"><span class="bd-chem-lbl">Bond Type</span><span class="bd-chem-val">${bondType}</span></div>` +
-    `<div class="bd-chem-item"><span class="bd-chem-lbl">IMFs</span><span class="bd-chem-val">${imf}</span></div>`
+    `<div class="bd-chem-item"><span class="bd-chem-lbl">IMFs</span><span class="bd-chem-val">${imf}</span></div>` +
+    `<div class="bd-chem-item"><span class="bd-chem-lbl">Source</span><span class="bd-chem-val">` +
+      (mol.cid
+        ? `<a class="src-link" href="https://pubchem.ncbi.nlm.nih.gov/compound/${mol.cid}" target="_blank" rel="noopener">PubChem CID ${mol.cid} ↗</a>`
+        : 'No PubChem entry') +
+    `</span></div>`
 }
 
 // Compound chemistry helpers
 // A bond is ionic only with a metal and ΔEN ≥ 1.7, so HF and BF3 stay covalent.
-// ponytail: a metal bonded to 4+ atoms is a coordination complex (heme, chlorophyll, B12), its bonds count as covalent
+// ponytail: metal-N bonds and metals bonded to 4+ atoms are coordination bonds (heme, chlorophyll), counted as covalent
 function isIonicBond(elA, elB, metalDegree) {
   const enA = ed(elA).en, enB = ed(elB).en
   if (enA === null || enB === null || (!METALS.has(elA) && !METALS.has(elB))) return false
+  if (elA === 'N' || elB === 'N') return false
   return Math.round(Math.abs(enA - enB) * 100) / 100 >= 1.7 && metalDegree < 4
 }
 
@@ -1371,8 +1398,10 @@ function bondStats(mol) {
     const enA = ed(A.el).en, enB = ed(B.el).en
     if (enA !== null && enB !== null) maxDEN = Math.max(maxDEN, Math.round(Math.abs(enA - enB) * 100) / 100)
   })
-  // PubChem draws some salts (MgCl2, NH4Cl) as loose charged ions with no bonds
-  if (mol.atoms.length > 1 && mol.atoms.some(a => !deg[a.id] && a.charge)) ionic = true
+  // PubChem draws some salts (MgCl2, NH4Cl) as loose charged ions with no bonds.
+  // It also drops the bonds of transition metals in complexes (Co in B12), so those aren't counted as free ions.
+  const hasC = mol.atoms.some(a => a.el === 'C')
+  if (mol.atoms.length > 1 && mol.atoms.some(a => !deg[a.id] && a.charge && !(hasC && ed(a.el).cat === 'Transition'))) ionic = true
   return {maxDEN, ionic, covalent, hBond}
 }
 
@@ -1528,6 +1557,10 @@ function showAtomPanel(atom) {
       kv('Shape',       vsepr?.mGeo  ?? '-') +
       kv('Ideal angle', vsepr?.angle ?? '-') +
       angleRows),
+    colSection('Sources',
+      `<div class="help-hint">Electronegativity is on the Pauling scale (the scale the IB Data Booklet uses) and mass is the standard atomic weight. ` +
+      `Check both on <a class="src-link" href="https://pubchem.ncbi.nlm.nih.gov/element/${einfo.z}" target="_blank" rel="noopener">PubChem: ${einfo.name} ↗</a>. ` +
+      `Ideal angles are VSEPR model values. Observed angles come from the structure's coordinates (${currentMol.coords ?? 'PubChem'}), not from experiment.</div>`),
   ].join('')
 
   document.getElementById('right-panel').classList.add('expanded')
