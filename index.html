@@ -356,10 +356,10 @@
     <div class="panel" id="leg-panel"></div>
     <div id="atom-panel">
       <div class="ap-header">
-        <div class="ap-symbol" id="ap-sym">—</div>
+        <div class="ap-symbol" id="ap-sym">-</div>
         <div class="ap-name-block">
-          <div class="ap-el-name" id="ap-name">—</div>
-          <div class="ap-cat" id="ap-cat">—</div>
+          <div class="ap-el-name" id="ap-name">-</div>
+          <div class="ap-cat" id="ap-cat">-</div>
         </div>
         <button class="ap-close" id="ap-close">✕</button>
       </div>
@@ -370,12 +370,12 @@
   <div id="bottom-drawer">
     <div id="bd-compound">
       <div class="bd-stats-row">
-        <div class="info-item"><span class="lbl">Molecule</span><span class="val accent" id="v-mol">—</span></div>
-        <div class="info-item"><span class="lbl">Geometry</span><span class="val" id="v-geo">—</span></div>
-        <div class="info-item"><span class="lbl">Bond Angle</span><span class="val" id="v-ang">—</span></div>
-        <div class="info-item"><span class="lbl">Bonds</span><span class="val" id="v-bnd">—</span></div>
-        <div class="info-item"><span class="lbl">Atoms</span><span class="val" id="v-atm">—</span></div>
-        <div class="info-item"><span class="lbl">Mass</span><span class="val" id="v-mw">—</span></div>
+        <div class="info-item"><span class="lbl">Molecule</span><span class="val accent" id="v-mol">-</span></div>
+        <div class="info-item"><span class="lbl">Geometry</span><span class="val" id="v-geo">-</span></div>
+        <div class="info-item"><span class="lbl">Bond Angle</span><span class="val" id="v-ang">-</span></div>
+        <div class="info-item"><span class="lbl">Bonds</span><span class="val" id="v-bnd">-</span></div>
+        <div class="info-item"><span class="lbl">Atoms</span><span class="val" id="v-atm">-</span></div>
+        <div class="info-item"><span class="lbl">Mass</span><span class="val" id="v-mw">-</span></div>
       </div>
       <div class="bd-chem-row" id="bd-chem-row">
         <span style="color:rgba(255,255,255,0.09);font-size:8.5px;letter-spacing:2px;text-transform:uppercase">Load a molecule to see chemistry data</span>
@@ -429,7 +429,7 @@
     <div class="help-row"><span class="help-key">R</span><span class="help-desc">Reset view</span></div>
     <div class="help-divider"></div>
     <div class="s-lbl" style="margin-bottom:6px">Load a molecule</div>
-    <div class="help-hint">Type a name <em>water</em>, <em>caffeine</em>, <em>aspirin</em> — or a formula like <em>H&#x2082;O</em>, <em>Na&#x2082;SO&#x2084;</em> — then press Enter.</div>
+    <div class="help-hint">Type a name <em>water</em>, <em>caffeine</em>, <em>aspirin</em>, or a formula like <em>H&#x2082;O</em> or <em>Na&#x2082;SO&#x2084;</em>, then press Enter.</div>
   </div>
 
 </div>
@@ -602,6 +602,7 @@ const VSEPR_TABLE = {
   '5-0': { eGeo:'Trigonal bipyramidal',mGeo:'Trigonal bipyramidal',axe:'AX₅', angle:'90°/120°' },
   '5-1': { eGeo:'Octahedral',     mGeo:'Square pyramidal',    axe:'AX₅E',  angle:'<90°' },
   '6-0': { eGeo:'Octahedral',     mGeo:'Octahedral',          axe:'AX₆',   angle:'90°' },
+  '7-0': { eGeo:'Pentagonal bipyramidal',mGeo:'Pentagonal bipyramidal',axe:'AX₇', angle:'72°/90°' },
 }
 
 function ed(el)       { return EDATA[el] ?? EDATA_DEFAULT }
@@ -650,13 +651,15 @@ const ANION_NAMES = {
 // Handles any casing: "Na2SO4", "na2so4", "NA2SO4" all parse correctly
 function parseFormula(raw) {
   const atoms = []
+  // Properly cased input ("CaCO3") is read literally; single-case input ("caco3") guesses two-letter symbols
+  const mixed = /[a-z]/.test(raw) && /[A-Z]/.test(raw)
   let i = 0
   while (i < raw.length) {
     if (!/[a-zA-Z]/.test(raw[i])) { i++; continue }
     let el = raw[i].toUpperCase()
     i++
     // Try two-letter symbol and validate against EDATA before committing
-    if (i < raw.length && /[a-zA-Z]/.test(raw[i])) {
+    if (i < raw.length && (mixed ? /[a-z]/ : /[a-zA-Z]/).test(raw[i])) {
       const two = el + raw[i].toLowerCase()
       if (EDATA[two]) { el = two; i++ }
     }
@@ -718,6 +721,8 @@ function nameIonicCompound(parsedAtoms) {
     const el = Object.keys(anionCounts)[0]
     const n  = ANION_NAMES[el]
     if (!n) return null
+    // Metal + nonmetal isn't enough: BeCl2 and AlCl3 have ΔEN < 1.7, so they're covalent
+    if (Math.abs(ed(el).en - ed(metalAtoms[0].el).en) < 1.7) return null
     anionStr = n.charAt(0).toUpperCase() + n.slice(1)
   } else {
     return null
@@ -767,6 +772,7 @@ const FORMULA_NAME = {
   'PCL3':'phosphorus trichloride', 'PCL5':'phosphorus pentachloride',
   'CCL4':'carbon tetrachloride',   'CH2CL2':'dichloromethane',
   'SF6':'sulfur hexafluoride',     'N2H4':'hydrazine',
+  'HF':'hydrogen fluoride', 'CO':'carbon monoxide', 'NO':'nitric oxide',
 }
 
 const molCache   = {}
@@ -800,7 +806,9 @@ function parsePubChemData(data, fallbackName) {
 }
 
 // fetch that tags network failures (offline, ad blocker, blocked network) so the error can say so
-const pcFetch = (url, signal) => fetch(url, {signal}).catch(e => { if (e.name !== 'AbortError') e.offline = true; throw e })
+const pcFetch = (url, signal) => fetch(url, {signal})
+  .catch(e => { if (e.name !== 'AbortError') e.offline = true; throw e })
+  .then(res => { if (res.status === 429 || res.status === 503) throw Object.assign(new Error('busy'), {busy:true}); return res })
 
 async function fetchRecord(base, fallbackName, signal) {
   // Try 3D conformer first; fall back to 2D layout (z=0) if unavailable
@@ -844,9 +852,10 @@ async function fetchMolecule(input) {
 
   const upper      = input.trim().toUpperCase()
   const mapped     = FORMULA_NAME[upper] ?? null
-  const save       = m => { molCache[key] = m; return m }
+  const save       = m => { molCache[key] = idealizeVSEPR(m); return molCache[key] }
   let   offline    = false
-  const notAbort   = e => { if (e.offline) offline = true; return e.name !== 'AbortError' }
+  let   busy       = false
+  const notAbort   = e => { if (e.offline) offline = true; if (e.busy) busy = true; return e.name !== 'AbortError' }
   const parsedAtoms = parseFormula(input.trim())
   // Only a real formula (every letter is an element symbol) gets the ionic path: "caffeine" parses as Ca+F+Fe+In
   const isFormula   = parsedAtoms.map(({el,n}) => el+(n>1?n:'')).join('').toLowerCase() === input.replace(/\s/g,'').toLowerCase()
@@ -878,36 +887,70 @@ async function fetchMolecule(input) {
     return save(buildIonicMol(parsedAtoms, ionicName))
   }
 
+  if (busy) throw new Error('PubChem is rate-limiting requests right now. Wait a minute and try again.')
   if (offline) throw new Error("Couldn't reach PubChem, the molecule database. Check your connection or turn off your ad blocker for this site.")
-  throw new Error(`"${input}" not found — try the full name or a formula like "Na2SO4"`)
+  throw new Error(`"${input}" not found. Try the full name or a formula like "Na2SO4"`)
 }
 
 // Geometry analysis
-const GEO_BY_NC = { 2:'Linear', 3:'Trigonal Planar', 4:'Tetrahedral', 5:'Trigonal Bipyramidal', 6:'Octahedral' }
-
-function analyzeGeometry(atoms, bonds) {
-  if (atoms.length === 2) return {geoName:'Diatomic'}
-
+// Single-center molecule: one non-H atom with 2+ bonds; null otherwise
+function vseprCenter(atoms, bonds) {
   const bc = {}
-  atoms.forEach(a => { bc[a.id] = 0 })
   bonds.forEach(b => { bc[b.a]=(bc[b.a]||0)+1; bc[b.b]=(bc[b.b]||0)+1 })
-
-  // Named geometry only for single-center molecules
   const nonTerminalHeavy = atoms.filter(a => a.el !== 'H' && bc[a.id] >= 2)
-  if (nonTerminalHeavy.length !== 1) return {geoName:'—'}
+  if (nonTerminalHeavy.length !== 1) return null
 
   const central   = nonTerminalHeavy[0]
   const myBonds   = bonds.filter(b => b.a===central.id || b.b===central.id)
   const neighbors = myBonds.map(b => b.a===central.id ? b.b : b.a)
                            .map(id => atoms.find(a => a.id===id)).filter(Boolean)
-
   const V         = ed(central.el).valence ?? 4
   const bondSum   = myBonds.reduce((s,b) => s+(b.order??1), 0)
   const lonePairs = Math.max(0, Math.floor((V - bondSum) / 2))
+  return {central, neighbors, lonePairs}
+}
 
-  let geoName = GEO_BY_NC[neighbors.length] ?? `${neighbors.length} bonds`
-  if (neighbors.length === 3 && lonePairs === 1) geoName = 'Trigonal Pyramidal'
-  if (neighbors.length === 2 && lonePairs >= 1)  geoName = 'Bent'
+// Ideal electron-domain directions. Lone pairs take the first slots:
+// equatorial in trigonal bipyramidal, trans pairs in octahedral.
+const VSEPR_DIRS = (() => {
+  const ring = n => Array.from({length:n}, (_,i) => [Math.cos(i*2*Math.PI/n), 0, Math.sin(i*2*Math.PI/n)])
+  return {
+    2: [[1,0,0],[-1,0,0]],
+    3: ring(3),
+    4: [[0,1,0],[0.943,-1/3,0],[-0.471,-1/3,0.816],[-0.471,-1/3,-0.816]],
+    5: [...ring(3), [0,1,0],[0,-1,0]],
+    6: [[0,1,0],[0,-1,0],[1,0,0],[-1,0,0],[0,0,1],[0,0,-1]],
+    7: [...ring(5), [0,1,0],[0,-1,0]],
+  }
+})()
+
+// PubChem has no 3D for most hypervalent molecules (XeF2, SF6, ClF3) and its SF4 conformer is tetrahedral,
+// so single-center molecules get ideal VSEPR positions. ponytail: PubChem 3D is trusted for steric number ≤ 4.
+function idealizeVSEPR(mol) {
+  if (mol.ionic) return mol
+  const c = vseprCenter(mol.atoms, mol.bonds)
+  if (!c || c.neighbors.length + 1 !== mol.atoms.length) return mol
+  const sn   = c.neighbors.length + c.lonePairs
+  const is2D = mol.atoms.every(a => !a.z)
+  if (!VSEPR_DIRS[sn] || (sn <= 4 && !is2D)) return mol
+  const dirs = VSEPR_DIRS[sn].slice(c.lonePairs)
+  const {x:cx, y:cy, z:cz} = c.central
+  const pos  = new Map(c.neighbors.map((n, i) => {
+    const L = Math.hypot(n.x-cx, n.y-cy, n.z-cz) || 1.5
+    return [n.id, {x:dirs[i][0]*L, y:dirs[i][1]*L, z:dirs[i][2]*L}]
+  }))
+  return {...mol, atoms: mol.atoms.map(a => a === c.central ? {...a, x:0, y:0, z:0} : {...a, ...pos.get(a.id)})}
+}
+
+const titleCase = s => s.replace(/(^|\s)\w/g, ch => ch.toUpperCase())
+
+function analyzeGeometry(atoms, bonds) {
+  if (atoms.length === 2) return {geoName:'Diatomic'}
+  const c = vseprCenter(atoms, bonds)
+  if (!c) return {geoName:'-'}
+  const {central, neighbors, lonePairs} = c
+  const vsepr   = VSEPR_TABLE[`${neighbors.length}-${lonePairs}`]
+  const geoName = vsepr ? titleCase(vsepr.mGeo) : `${neighbors.length} bonds`
 
   // Compute bond angle from 3D positions
   let bondAngle = null
@@ -929,7 +972,7 @@ function analyzeGeometry(atoms, bonds) {
       if (dev < 8) bondAngle = avg.toFixed(1) + '°'
     }
   }
-  return {geoName, bondAngle}
+  return {geoName, bondAngle: bondAngle ?? vsepr?.angle ?? null}
 }
 
 // atom details
@@ -940,7 +983,7 @@ function atomDetailInfo(atom, allAtoms, bonds) {
   const formalCharge = typeof atom.charge === 'number' ? atom.charge : V - Math.max(0, Math.floor((V - bondSum) / 2)) * 2 - bondSum
   const lonePairs    = Math.max(0, Math.round((V - formalCharge - bondSum) / 2))
   const domains      = myBonds.length + lonePairs
-  const hyb          = {1:'s',2:'sp',3:'sp²',4:'sp³',5:'sp³d',6:'sp³d²'}[domains] ?? '—'
+  const hyb          = {1:'s',2:'sp',3:'sp²',4:'sp³',5:'sp³d',6:'sp³d²'}[domains] ?? '-'
 
   const COORD_DONORS = new Set(['N','O','P','S','As','Se','Te','F','Cl','Br','I'])
 
@@ -966,7 +1009,7 @@ function atomDetailInfo(atom, allAtoms, bonds) {
     const orderLabel = b.order===2 ? 'double' : b.order===3 ? 'triple' : coordBond ? 'dative' : 'single'
 
     return {
-      el: n.el, order: b.order,
+      id: n.id, el: n.el, order: b.order,
       orderSym, orderLabel, coordBond,
       len: d.toFixed(2),
     }
@@ -1273,14 +1316,14 @@ function renderMol(mol) {
 
   const geoResult = mol.ionic ? {geoName:'Ionic Compound', bondAngle:null} : analyzeGeometry(mol.atoms, mol.bonds)
   const geoName   = geoResult.geoName
-  const mw        = mol.mw > 0 ? mol.mw.toFixed(2) + ' u' : '—'
+  const mw        = mol.mw > 0 ? mol.mw.toFixed(2) + ' u' : '-'
 
   document.getElementById('v-mol').textContent = mol.formula
   document.getElementById('v-geo').textContent = geoName
   document.getElementById('v-bnd').textContent = mol.bonds.reduce((s,b) => s+(b.order??1), 0)
   document.getElementById('v-atm').textContent = mol.atoms.length
   document.getElementById('v-mw').textContent  = mw
-  document.getElementById('v-ang').textContent = geoResult.bondAngle ?? '—'
+  document.getElementById('v-ang').textContent = geoResult.bondAngle ?? '-'
 
   const unique = [...new Set(mol.atoms.map(a => a.el))]
   const hasLPs = mol.atoms.some(a => {
@@ -1292,11 +1335,11 @@ function renderMol(mol) {
     `<div class="leg-title">ATOMS</div>` +
     unique.map(el =>
       `<div class="leg-row"><div class="leg-dot" style="background:${hexStr(elColor(el))}"></div>` +
-      `<span>${el} — ${ed(el).name}</span></div>`
+      `<span>${el} · ${ed(el).name}</span></div>`
     ).join('')
 
   const polarity = computeMolPolarity(mol, geoName)
-  const imf      = computeAllIMFs(mol)
+  const imf      = computeAllIMFs(mol, polarity)
   const bondType = computeBondType(mol)
   document.getElementById('bd-chem-row').innerHTML =
     `<span class="bd-badge ${polarity.cls}" title="${polarity.reason}">${polarity.label}</span>` +
@@ -1305,47 +1348,61 @@ function renderMol(mol) {
 }
 
 // Compound chemistry helpers
-function computeBondType(mol) {
-  if (mol.ionic) return 'Ionic'
-  if (!mol.bonds.length) return '—'
-  let maxDEN = 0
-  mol.bonds.forEach(b => {
-    const a = mol.atoms.find(x => x.id===b.a)?.el, bEl = mol.atoms.find(x => x.id===b.b)?.el
-    const enA = ed(a).en, enB = ed(bEl).en
-    if (enA !== null && enB !== null) maxDEN = Math.max(maxDEN, Math.abs(enA - enB))
-  })
-  if (maxDEN >= 1.7) return 'Ionic'
-  if (maxDEN >= 0.5) return 'Polar Covalent'
-  return 'Nonpolar Covalent'
+// A bond is ionic only with a metal and ΔEN ≥ 1.7, so HF and BF3 stay covalent.
+// ponytail: a metal bonded to 4+ atoms is a coordination complex (heme, chlorophyll, B12), its bonds count as covalent
+function isIonicBond(elA, elB, metalDegree) {
+  const enA = ed(elA).en, enB = ed(elB).en
+  if (enA === null || enB === null || (!METALS.has(elA) && !METALS.has(elB))) return false
+  return Math.round(Math.abs(enA - enB) * 100) / 100 >= 1.7 && metalDegree < 4
 }
 
-function computeAllIMFs(mol) {
-  if (mol.ionic) return 'Ion–ion'
-  let maxDEN = 0
+function bondStats(mol) {
+  const byId = new Map(mol.atoms.map(a => [a.id, a]))
+  const deg  = {}
+  mol.bonds.forEach(b => { deg[b.a]=(deg[b.a]||0)+1; deg[b.b]=(deg[b.b]||0)+1 })
+  let maxDEN = 0, ionic = false, covalent = false, hBond = false
   mol.bonds.forEach(b => {
-    const a = mol.atoms.find(x => x.id===b.a)?.el, bEl = mol.atoms.find(x => x.id===b.b)?.el
-    const enA = ed(a).en, enB = ed(bEl).en
-    if (enA !== null && enB !== null) maxDEN = Math.max(maxDEN, Math.abs(enA - enB))
+    const A = byId.get(b.a), B = byId.get(b.b)
+    if (!A || !B) return
+    if ([A.el, B.el].includes('H') && [A.el, B.el].some(e => ['N','O','F'].includes(e))) hBond = true
+    const metalDeg = METALS.has(A.el) ? deg[A.id] : deg[B.id]
+    if (isIonicBond(A.el, B.el, metalDeg)) { ionic = true; return }
+    covalent = true
+    const enA = ed(A.el).en, enB = ed(B.el).en
+    if (enA !== null && enB !== null) maxDEN = Math.max(maxDEN, Math.round(Math.abs(enA - enB) * 100) / 100)
   })
-  if (maxDEN >= 1.7) return 'Ion–ion'
-  const imfs  = ['London dispersion']
-  const elems = [...new Set(mol.atoms.map(a => a.el))]
-  if (maxDEN >= 0.5) imfs.push('Dipole–dipole')
-  if (elems.includes('H') && elems.some(e => ['N','O','F'].includes(e))) imfs.push('H-bonding')
+  // PubChem draws some salts (MgCl2, NH4Cl) as loose charged ions with no bonds
+  if (mol.atoms.length > 1 && mol.atoms.some(a => !deg[a.id] && a.charge)) ionic = true
+  return {maxDEN, ionic, covalent, hBond}
+}
+
+function computeBondType(mol) {
+  if (mol.ionic) return 'Ionic'
+  const s = bondStats(mol)
+  if (s.ionic) return s.covalent ? 'Ionic + covalent' : 'Ionic'
+  if (!mol.bonds.length) return '-'
+  return s.maxDEN >= 0.4 ? 'Polar Covalent' : 'Nonpolar Covalent'
+}
+
+function computeAllIMFs(mol, polarity) {
+  if (polarity.label === 'Ionic') return 'Ion–ion'
+  const imfs = ['London dispersion']
+  if (polarity.label === 'Polar') imfs.push('Dipole–dipole')
+  if (bondStats(mol).hBond) imfs.push('H-bonding')
   return imfs.join(', ')
 }
 
+const SYMMETRIC_GEOS = ['Linear','Trigonal Planar','Tetrahedral','Trigonal Bipyramidal','Octahedral','Square Planar','Pentagonal Bipyramidal']
+
 function computeMolPolarity(mol, geoName) {
   if (mol.ionic) return { label:'Ionic', cls:'ionic', reason:'Ionic compound' }
-  let maxDEN = 0
-  mol.bonds.forEach(b => {
-    const a = mol.atoms.find(x => x.id===b.a)?.el, bEl = mol.atoms.find(x => x.id===b.b)?.el
-    const enA = ed(a).en, enB = ed(bEl).en
-    if (enA !== null && enB !== null) maxDEN = Math.max(maxDEN, Math.abs(enA - enB))
-  })
-  if (maxDEN >= 1.7) return { label:'Ionic', cls:'ionic', reason:'Ionic bonds (ΔEN ≥ 1.7)' }
+  const s = bondStats(mol)
+  if (s.ionic) return { label:'Ionic', cls:'ionic', reason:'Ionic bonds (metal, ΔEN ≥ 1.7)' }
   const elems = [...new Set(mol.atoms.map(a => a.el))]
-  if (elems.length === 1) return { label:'Nonpolar', cls:'nonpolar', reason:'Homonuclear' }
+  // Ozone is the classic exception: bent, so the central atom's lone pair gives it a dipole
+  if (elems.length === 1) return geoName === 'Bent'
+    ? { label:'Polar', cls:'polar', reason:'Bent, lone pair on central atom' }
+    : { label:'Nonpolar', cls:'nonpolar', reason:'Homonuclear' }
   const central = mol.atoms.find(a =>
     mol.bonds.filter(b => b.a===a.id||b.b===a.id).length >= 2 && a.el !== 'H'
   )
@@ -1353,17 +1410,11 @@ function computeMolPolarity(mol, geoName) {
     const ligandEls = mol.bonds
       .filter(b => b.a===central.id||b.b===central.id)
       .map(b => mol.atoms.find(a => a.id===(b.a===central.id?b.b:b.a))?.el)
-    if (ligandEls.length && new Set(ligandEls).size === 1 &&
-        ['Linear','Trigonal Planar','Tetrahedral','Trigonal Bipyramidal','Octahedral'].includes(geoName)) {
+    if (ligandEls.length && new Set(ligandEls).size === 1 && SYMMETRIC_GEOS.includes(geoName)) {
       return { label:'Nonpolar', cls:'nonpolar', reason:geoName + ' + same ligands' }
     }
   }
-  const hasPolar = mol.bonds.some(b => {
-    const a = mol.atoms.find(x => x.id===b.a)?.el, bEl = mol.atoms.find(x => x.id===b.b)?.el
-    const enA = ed(a).en, enB = ed(bEl).en
-    return enA !== null && enB !== null && Math.abs(enA - enB) >= 0.4
-  })
-  if (!hasPolar) return { label:'Nonpolar', cls:'nonpolar', reason:'No polar bonds' }
+  if (s.maxDEN < 0.4) return { label:'Nonpolar', cls:'nonpolar', reason:'No polar bonds' }
   return { label:'Polar', cls:'polar', reason:geoName + ' geometry' }
 }
 
@@ -1398,6 +1449,7 @@ function showAtomPanel(atom) {
   const bp    = info.neighborBonds.length
   const lp    = info.lonePairs
   const vsepr = VSEPR_TABLE[`${bp}-${lp}`] ?? null
+  const degreeOf = id => currentMol.bonds.filter(x => x.a===id || x.b===id).length
 
   // Bond counts with σ/π breakdown
   let singles = 0, doubles = 0, triples = 0, datives = 0
@@ -1414,7 +1466,7 @@ function showAtomPanel(atom) {
   if (datives) parts.push(`${datives} dative`)
   if (doubles) parts.push(`${doubles} double`)
   if (triples) parts.push(`${triples} triple`)
-  const bondSummary = parts.join(', ') || '—'
+  const bondSummary = parts.join(', ') || '-'
 
   // Bond rows: type and length only (ΔEN lives in Bond Polarity section)
   const bondRows = info.neighborBonds.length
@@ -1428,7 +1480,7 @@ function showAtomPanel(atom) {
       ).join('')
     : `<div style="color:rgba(255,255,255,0.2);font-size:9px;padding:3px 0">No bonds</div>`
 
-  // Bond polarity: any ΔEN > 0 is polar; ΔEN ≥ 1.7 is ionic
+  // Bond polarity: any ΔEN > 0 is polar; ionic needs a metal and ΔEN ≥ 1.7
   const polarityRows = info.neighborBonds.length
     ? info.neighborBonds.map(b => {
         const en2 = ed(b.el).en
@@ -1436,13 +1488,13 @@ function showAtomPanel(atom) {
         let pCls, pLabel, direction = ''
         if (den === null)   { pCls = 'zero'; pLabel = 'Unknown' }
         else if (den === 0) { pCls = 'zero'; pLabel = 'Nonpolar covalent' }
-        else if (den < 1.7) { pCls = 'pos';  pLabel = 'Polar covalent' }
-        else                { pCls = 'cyan'; pLabel = 'Ionic' }
+        else if (isIonicBond(atom.el, b.el, degreeOf(METALS.has(atom.el) ? atom.id : b.id))) { pCls = 'cyan'; pLabel = 'Ionic' }
+        else                { pCls = 'pos';  pLabel = 'Polar covalent' }
         if (den !== null && den > 0) {
           const neg = (einfo.en ?? 0) > (en2 ?? 0) ? atom.el : b.el
           direction = ` · δ⁻ on ${neg}`
         }
-        const denStr = den !== null ? den.toFixed(2) : '—'
+        const denStr = den !== null ? den.toFixed(2) : '-'
         return `<div class="ap-kv">
           <span class="ap-k">${atom.el}–${b.el} &nbsp;ΔEN ${denStr}</span>
           <span class="ap-v ${pCls}">${pLabel}${direction}</span>
@@ -1455,7 +1507,7 @@ function showAtomPanel(atom) {
     ? `<div style="color:rgba(255,255,255,0.22);font-size:7.5px;letter-spacing:2px;text-transform:uppercase;margin:8px 0 4px">Observed angles</div>` +
       info.angles.map(a =>
         `<div class="ap-angle-row">
-          <span class="ap-angle-atoms">${a.a} — ${atom.el} — ${a.b}</span>
+          <span class="ap-angle-atoms">${a.a}-${atom.el}-${a.b}</span>
           <span class="ap-angle-val">${a.deg}°</span>
         </div>`).join('')
     : ''
@@ -1473,8 +1525,8 @@ function showAtomPanel(atom) {
       `<div style="margin-top:6px">${bondRows}</div>`),
     colSection('Bond Polarity', polarityRows),
     colSection('Local Geometry',
-      kv('Shape',       vsepr?.mGeo  ?? '—') +
-      kv('Ideal angle', vsepr?.angle ?? '—') +
+      kv('Shape',       vsepr?.mGeo  ?? '-') +
+      kv('Ideal angle', vsepr?.angle ?? '-') +
       angleRows),
   ].join('')
 
@@ -1498,14 +1550,14 @@ function _DEAD_buildTabContent(tabId, atom, info, einfo, pt) { // unreferenced, 
   const vsepr = VSEPR_TABLE[`${bp}-${lp}`] ?? null
 
   if (tabId === 'identity') {
-    const oxList = pt?.ox?.map(o => o > 0 ? `+${o}` : `${o}`).join(', ') ?? '—'
+    const oxList = pt?.ox?.map(o => o > 0 ? `+${o}` : `${o}`).join(', ') ?? '-'
     return `<div class="ap-section">
       <div class="ap-sec-title">Identity</div>
       ${kv('Atomic number',   einfo.z)}
       ${kv('Atomic mass',     einfo.mass + ' u')}
-      ${kv('Group',           pt?.group ?? '—')}
-      ${kv('Period',          pt?.period ?? '—')}
-      ${kv('Block',           pt?.block ?? '—')}
+      ${kv('Group',           pt?.group ?? '-')}
+      ${kv('Period',          pt?.period ?? '-')}
+      ${kv('Block',           pt?.block ?? '-')}
       ${kv('Oxidation states',oxList)}
     </div>`
   }
@@ -1513,9 +1565,9 @@ function _DEAD_buildTabContent(tabId, atom, info, einfo, pt) { // unreferenced, 
   if (tabId === 'estruc') {
     return `<div class="ap-section">
       <div class="ap-sec-title">Electronic Structure</div>
-      ${kv('Electron config',  pt?.config ?? '—')}
+      ${kv('Electron config',  pt?.config ?? '-')}
       ${kv('Valence electrons',einfo.valence)}
-      ${kv('Electronegativity',einfo.en ?? '—')}
+      ${kv('Electronegativity',einfo.en ?? '-')}
     </div>`
   }
 
@@ -1556,7 +1608,7 @@ function _DEAD_buildTabContent(tabId, atom, info, einfo, pt) { // unreferenced, 
     if (info.angles.length) {
       info.angles.forEach(a => {
         angleRows += `<div class="ap-angle-row">
-          <span class="ap-angle-atoms">${a.a} — ${atom.el} — ${a.b}</span>
+          <span class="ap-angle-atoms">${a.a}-${atom.el}-${a.b}</span>
           <span class="ap-angle-val">${a.deg}°</span>
         </div>`
       })
@@ -1565,11 +1617,11 @@ function _DEAD_buildTabContent(tabId, atom, info, einfo, pt) { // unreferenced, 
     }
     return `<div class="ap-section">
       <div class="ap-sec-title">VSEPR</div>
-      ${kv('Steric number',     sn || '—')}
-      ${kv('Electron geometry', vsepr?.eGeo ?? '—')}
-      ${kv('Molecular geometry',vsepr?.mGeo ?? '—')}
-      ${kv('AXE notation',      vsepr?.axe  ?? '—')}
-      ${kv('Ideal bond angle',  vsepr?.angle ?? '—')}
+      ${kv('Steric number',     sn || '-')}
+      ${kv('Electron geometry', vsepr?.eGeo ?? '-')}
+      ${kv('Molecular geometry',vsepr?.mGeo ?? '-')}
+      ${kv('AXE notation',      vsepr?.axe  ?? '-')}
+      ${kv('Ideal bond angle',  vsepr?.angle ?? '-')}
     </div>
     <div class="ap-section">
       <div class="ap-sec-title">Observed Angles</div>
@@ -1590,10 +1642,10 @@ function _DEAD_buildTabContent(tabId, atom, info, einfo, pt) { // unreferenced, 
   }
 
   if (tabId === 'props') {
-    const imfs = pt?.imf?.join(', ') ?? '—'
+    const imfs = pt?.imf?.join(', ') ?? '-'
     const polar = einfo.en !== null
       ? (einfo.en > 2.0 ? 'Polar tendency' : 'Nonpolar tendency')
-      : '—'
+      : '-'
     const dipole = info.neighborBonds.some(b => {
       const ne = ed(b.el).en; return ne !== null && einfo.en !== null && Math.abs(einfo.en - ne) >= 0.5
     }) ? 'Likely nonzero' : 'Likely ~0'
@@ -1640,7 +1692,7 @@ function _DEAD_buildTabContent(tabId, atom, info, einfo, pt) { // unreferenced, 
     }
     if (isS) fgs.push('Thiol / Sulfide S')
     if (isHalogen) fgs.push('Halide substituent')
-    if (!fgs.length) fgs.push('—')
+    if (!fgs.length) fgs.push('-')
 
     const chiral = isC && bp === 4 &&
       new Set(neighbElems).size === 4 ? 'Possible (4 different groups)' : 'Not at this atom'
@@ -1862,7 +1914,7 @@ window.addEventListener('resize', () => {
       brText.value = ''
       setTimeout(() => { brPanel.classList.remove('show'); brSend.textContent = 'Send'; brSend.disabled = false }, 1200)
     } catch {
-      brSend.textContent = 'Failed — try again'
+      brSend.textContent = 'Failed, try again'
       brSend.disabled = false
     }
   })
